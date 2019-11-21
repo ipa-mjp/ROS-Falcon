@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+
+<launch>
+    <!-- Debug Info -->
+    <arg name="debug" default="false" />
+    <arg unless="$(arg debug)" name="launch_prefix" value="" />
+    <arg     if="$(arg debug)" name="launch_prefix" value="gdb --ex run --args" />
+    
+
+    <!-- motion planning node -->
+    <node pkg="rosfalcon" type="kdl_kinematics.py" name="kdl_kinematics"  respawn="false" launch-prefix="$(arg launch_prefix)" output="screen"/>
+    
+</launch>
+

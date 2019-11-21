@@ -1,15 +1,20 @@
 //////////////////////////////////////////////////////////
 // ROSfalcon Simple Joystick Controller.
 //
-// Steven Martin
-// 22/07/10
+// Mayank Patel
+// 21/11/2019
 
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <pluginlib/class_loader.h>
+#include <actionlib/client/simple_action_client.h>
 #include <ros/ros.h>
+#include <ros/common.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/PoseStamped.h>
+
+#include <boost/scoped_ptr.hpp>
 
 #include "falcon/core/FalconDevice.h"
 #include "falcon/firmware/FalconFirmwareNovintSDK.h"
@@ -22,6 +27,10 @@
 #include "falcon/util/FalconFirmwareBinaryNvent.h"
 #include "falcon/grip/FalconGripFourButton.h"
 
+#include <ipa_manipulation_msgs/PlanToAction.h>
+#include <ipa_manipulation_msgs/PlanToGoal.h>
+#include <ipa_manipulation_msgs/MoveToAction.h>
+#include <ipa_manipulation_msgs/MoveToGoal.h>
 
 using namespace libnifalcon;
 using namespace std;
@@ -140,6 +149,92 @@ bool init_falcon(int NoFalcon)
     return true;
 }
 
+bool plan_trajectory(const std::string& plan_action_topic_name, const std::string& base_frame_id, const std::array<double, 3>& Pos)
+{
+    std::cout << "#############" << std::endl;
+    actionlib::SimpleActionClient<ipa_manipulation_msgs::PlanToAction> plan_action_client_(plan_action_topic_name, true);
+    if (!plan_action_client_.waitForServer(ros::Duration(5.0)))
+    {
+      ROS_ERROR_NAMED("main","%s action server is not available, please start 'ipa_mnaipulation' node", plan_action_topic_name.c_str());
+      return false;
+    }
+    std::cout << "#############" << std::endl;
+    // conversion from array to geometry_msgs,
+    // where the orientation and frame id is fixed
+    geometry_msgs::PoseStamped falcon_eef_stamped;
+    falcon_eef_stamped.header.frame_id = base_frame_id;
+    falcon_eef_stamped.header.stamp = ros::Time::now();
+    falcon_eef_stamped.pose.position.x = Pos[0];
+    falcon_eef_stamped.pose.position.y = Pos[1];
+    falcon_eef_stamped.pose.position.z = Pos[2];
+    falcon_eef_stamped.pose.orientation.w = 1.0;
+    falcon_eef_stamped.pose.orientation.x = 0.0;
+    falcon_eef_stamped.pose.orientation.y = 0.0;
+    falcon_eef_stamped.pose.orientation.z = 0.0;
+
+    ipa_manipulation_msgs::PlanToGoal plan_goal;
+    plan_goal.expected_poseStamped = falcon_eef_stamped;
+    plan_action_client_.sendGoal(plan_goal);
+
+    bool finished_before_timeout = plan_action_client_.waitForResult(ros::Duration(30.0));
+    ipa_manipulation_msgs::PlanToResultConstPtr plan_result = plan_action_client_.getResult();
+    actionlib::SimpleClientGoalState plan_state = plan_action_client_.getState();
+    if (finished_before_timeout == true && plan_result->got_plan == true && plan_state == actionlib::SimpleClientGoalState::SUCCEEDED)
+    {
+      ROS_INFO_STREAM_NAMED("main","plan Successed with goal pose: \n " << falcon_eef_stamped);
+      return true;
+    }
+    else
+    {
+      ROS_ERROR_STREAM_NAMED("main","plan failed with goal pose: \n " << falcon_eef_stamped);
+      return false;
+    }
+
+}
+
+bool move_trajectory(const std::string& move_action_topic_name, const std::string& base_frame_id, const std::array<double, 3>& Pos)
+{
+  actionlib::SimpleActionClient<ipa_manipulation_msgs::MoveToAction> move_action_client_(move_action_topic_name, true);
+  if (!move_action_client_.waitForServer(ros::Duration(5.0)))
+  {
+    ROS_ERROR_NAMED("main","%s action server is not available, please start 'ipa_mnaipulation' node", move_action_topic_name.c_str());
+    return false;
+  }
+
+  // falcon give only cartesian position
+  // basic orientation and frame id for falcon
+  geometry_msgs::PoseStamped falcon_eef_stamped;
+  falcon_eef_stamped.header.frame_id = base_frame_id;
+  falcon_eef_stamped.header.stamp = ros::Time::now();
+  falcon_eef_stamped.pose.position.x = Pos[0];
+  falcon_eef_stamped.pose.position.y = Pos[1];
+  falcon_eef_stamped.pose.position.z = Pos[2];
+  falcon_eef_stamped.pose.orientation.w = 1.0;
+  falcon_eef_stamped.pose.orientation.x = 0.0;
+  falcon_eef_stamped.pose.orientation.y = 0.0;
+  falcon_eef_stamped.pose.orientation.z = 0.0;
+
+  ipa_manipulation_msgs::MoveToGoal move_goal;
+  move_goal.target_pos = falcon_eef_stamped;
+  move_goal.followed_from_executed_trajectory = false;
+  move_action_client_.sendGoal(move_goal);
+
+  bool finished_before_timeout = move_action_client_.waitForResult(ros::Duration(30.0));
+  ipa_manipulation_msgs::MoveToResultConstPtr move_result = move_action_client_.getResult();
+  actionlib::SimpleClientGoalState move_state = move_action_client_.getState();
+  if (finished_before_timeout == true && move_result->arrived == true && move_state == actionlib::SimpleClientGoalState::SUCCEEDED)
+  {
+    ROS_INFO_STREAM_NAMED("main","move Successed with goal pose: \n " << falcon_eef_stamped);
+    return true;
+  }
+  else
+  {
+    ROS_ERROR_STREAM_NAMED("main","move failed with goal pose: \n " << falcon_eef_stamped);
+    return false;
+  }
+
+
+}
 
 int main(int argc, char* argv[])
 {
@@ -150,24 +245,19 @@ int main(int argc, char* argv[])
     bool debug;
     //Button 4 is mimic-ing clutch.
     bool clutchPressed, coagPressed;
-    std::string base_frame_id;
+    std::string base_frame_id, plan_action_topic_name, move_action_topic_name;
     node.param<int>("falcon_number", falcon_int, 0);
     node.param<bool>("falcon_debug", debug, false);
     node.param<bool>("falcon_clutch", clutchPressed, true);
     node.param<bool>("falcon_coag", coagPressed, true);
-    node.param<string>("base_frame", base_frame_id, "world");
+    node.param<string>("base_frame", base_frame_id, "arm_7_link");
+    node.param<string>("plan_action_topic_name", plan_action_topic_name, "arm_planning_node/PlanTo");
+    node.param<string>("move_action_topic_name", move_action_topic_name, "arm_planning_node/MoveTo");
 
+    bool planActionExist = true;
+    bool moveActionExist = true;
 
-    // falcon give only cartesian position
-    // basic orientation and frame id for falcon
-    geometry_msgs::PoseStamped falcon_eef_stamped;
-    falcon_eef_stamped.header.frame_id = base_frame_id;
-    falcon_eef_stamped.header.stamp = ros::Time::now();
-    falcon_eef_stamped.pose.orientation.w = 1.0;
-    falcon_eef_stamped.pose.orientation.x = 0.0;
-    falcon_eef_stamped.pose.orientation.y = 0.0;
-    falcon_eef_stamped.pose.orientation.z = 0.0;
-
+    //ros::Publisher goal_state_publisher = node.advertise<>
 
     if(init_falcon(falcon_int))
     {
@@ -219,7 +309,7 @@ int main(int argc, char* argv[])
                 
 
                 // Check if button 4 is pressed, set the forces equal to 0.
-                if(buttons == 4 || buttons == 2){
+                if(buttons == 4 || buttons == 2 || buttons == 1 || buttons == 8){
                     if(buttons == 4 && coagPressed == false){
                         ROS_INFO("Coag Pressed (Button 4)");
                         coagPressed = true;
@@ -228,20 +318,17 @@ int main(int argc, char* argv[])
                         ROS_INFO("Clutch Pressed (Button 2)");
                         clutchPressed = true;
                     }
+                    else if(buttons == 1 && planActionExist == false){
+                        ROS_INFO("Plan Trajectory Pressed (Button 1)");
+                        planActionExist = true;
+                    }
+                    else if(buttons == 8 && moveActionExist == false){
+                        ROS_INFO("Move Trajectory Pressed (Button 8)");
+                        moveActionExist = true;
+                    }
                     forces[0] = 0;
                     forces[1] = 0;
                     forces[2] = 0;
-                }
-                // planning trajectroy
-                else if (buttons == 1)
-                {
-                  // planning of trajectory with newHome
-                  newHome = Pos;
-                }
-                else if (buttons == 3)
-                {
-                  //executing trajectroy
-                  newHome = Pos;
                 }
                 else{
                     if(coagPressed == true){
@@ -254,6 +341,18 @@ int main(int argc, char* argv[])
                         ROS_INFO("Clutch Released (Button 2)");
                         clutchPressed = false;
                         newHome = Pos;
+                    }
+                    else if(planActionExist == true){
+                      ROS_INFO("Plan Trajectory Released (Button 1)");
+                      planActionExist = false;
+                      newHome = Pos;
+                      plan_trajectory(plan_action_topic_name, base_frame_id, Pos);
+                    }
+                    else if(moveActionExist == true){
+                      ROS_INFO("Move Trajectory Released (Button 8)");
+                      moveActionExist = false;
+                      newHome = Pos;
+                      move_trajectory(move_action_topic_name, base_frame_id, Pos);
                     }
                     //Simple PD controller
                     forces[0] = ((Pos[0] - newHome[0]) * KpGainX) + (Pos[0] - prevPos[0])*KdGainX;

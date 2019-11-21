@@ -9,9 +9,11 @@ else()
 endif()
 
 find_package(catkin REQUIRED COMPONENTS
+ actionlib
  roscpp
  joy
  geometry_msgs
+ ipa_manipulation_msgs
  message_generation
 )
 

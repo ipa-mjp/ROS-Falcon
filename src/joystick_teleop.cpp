@@ -13,6 +13,7 @@
 #include <ros/common.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/PoseStamped.h>
+//#include <std_srvs/Empty.h>
 
 #include <boost/scoped_ptr.hpp>
 
@@ -151,14 +152,14 @@ bool init_falcon(int NoFalcon)
 
 bool plan_trajectory(const std::string& plan_action_topic_name, const std::string& base_frame_id, const std::array<double, 3>& Pos)
 {
-    std::cout << "#############" << std::endl;
+
     actionlib::SimpleActionClient<ipa_manipulation_msgs::PlanToAction> plan_action_client_(plan_action_topic_name, true);
     if (!plan_action_client_.waitForServer(ros::Duration(5.0)))
     {
       ROS_ERROR_NAMED("main","%s action server is not available, please start 'ipa_mnaipulation' node", plan_action_topic_name.c_str());
       return false;
     }
-    std::cout << "#############" << std::endl;
+
     // conversion from array to geometry_msgs,
     // where the orientation and frame id is fixed
     geometry_msgs::PoseStamped falcon_eef_stamped;
@@ -250,14 +251,15 @@ int main(int argc, char* argv[])
     node.param<bool>("falcon_debug", debug, false);
     node.param<bool>("falcon_clutch", clutchPressed, true);
     node.param<bool>("falcon_coag", coagPressed, true);
-    node.param<string>("base_frame", base_frame_id, "arm_7_link");
-    node.param<string>("plan_action_topic_name", plan_action_topic_name, "arm_planning_node/PlanTo");
-    node.param<string>("move_action_topic_name", move_action_topic_name, "arm_planning_node/MoveTo");
+    node.param<string>("base_frame", base_frame_id, "arm_left_7_link");
+    node.param<string>("plan_action_topic_name", plan_action_topic_name, "arm_planning_node/PlanInCartesian");
+    node.param<string>("move_action_topic_name", move_action_topic_name, "arm_planning_node/MoveInCartesian");
 
     bool planActionExist = true;
     bool moveActionExist = true;
 
-    //ros::Publisher goal_state_publisher = node.advertise<>
+    // this will update goal state as start state
+    //ros::Publisher goal_state_publisher = node.advertise<std_srvs::Empty>("rviz/moveit/update_goal_state", 1000);
 
     if(init_falcon(falcon_int))
     {
@@ -346,13 +348,13 @@ int main(int argc, char* argv[])
                       ROS_INFO("Plan Trajectory Released (Button 1)");
                       planActionExist = false;
                       newHome = Pos;
-                      plan_trajectory(plan_action_topic_name, base_frame_id, Pos);
+                      //plan_trajectory(plan_action_topic_name, base_frame_id, Pos);
                     }
                     else if(moveActionExist == true){
                       ROS_INFO("Move Trajectory Released (Button 8)");
                       moveActionExist = false;
                       newHome = Pos;
-                      move_trajectory(move_action_topic_name, base_frame_id, Pos);
+                      //move_trajectory(move_action_topic_name, base_frame_id, Pos);
                     }
                     //Simple PD controller
                     forces[0] = ((Pos[0] - newHome[0]) * KpGainX) + (Pos[0] - prevPos[0])*KdGainX;

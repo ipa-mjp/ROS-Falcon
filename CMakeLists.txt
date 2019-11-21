@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
  joy
  geometry_msgs
  ipa_manipulation_msgs
+ sensor_msgs
  message_generation
 )
 
@@ -27,11 +28,19 @@ add_message_files(
  falconSetPoint.msg
 )
 
+add_service_files(
+ DIRECTORY
+  srv
+ FILES
+  ComputeIK.srv
+)
+
 #uncomment if you have defined messages
 generate_messages(
  DEPENDENCIES
  std_msgs
  geometry_msgs
+ sensor_msgs
 )
 
 catkin_package(

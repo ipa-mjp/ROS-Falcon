@@ -11,6 +11,7 @@ endif()
 find_package(catkin REQUIRED COMPONENTS
  roscpp
  joy
+ geometry_msgs
  message_generation
 )
 
@@ -28,6 +29,7 @@ add_message_files(
 generate_messages(
  DEPENDENCIES
  std_msgs
+ geometry_msgs
 )
 
 catkin_package(
@@ -50,11 +52,13 @@ include_directories(
 #common commands for building c++ executables and libraries
 #rosbuild_add_library(${PROJECT_NAME} src/example.cpp)
 add_executable(joystick src/joystick.cpp)
+add_executable(joystick_teleop src/joystick_teleop.cpp)
 add_executable(gripper src/gripper.cpp)
 add_executable(falcon_cs_pid src/falcon_cs_pid.cpp)
 add_executable(falcon_js_pid src/falcon_js_pid.cpp)
 add_executable(falcon_node src/main.cpp)
 target_link_libraries(joystick nifalcon_cli_base nifalcon usb-1.0)
+target_link_libraries(joystick_teleop nifalcon_cli_base nifalcon usb-1.0)
 target_link_libraries(falcon_cs_pid nifalcon_cli_base nifalcon usb-1.0)
 target_link_libraries(falcon_js_pid nifalcon_cli_base nifalcon usb-1.0)
 target_link_libraries(falcon_node nifalcon_cli_base nifalcon usb-1.0)
@@ -62,6 +66,7 @@ target_link_libraries(falcon_node nifalcon_cli_base nifalcon usb-1.0)
 #rosbuild_link_boost(${PROJECT_NAME} thread)
 #target_link_libraries(libnifalcon_cli_base ${PROJECT_NAME})
 target_link_libraries(joystick ${catkin_LIBRARIES})
+target_link_libraries(joystick_teleop ${catkin_LIBRARIES})
 target_link_libraries(gripper ${catkin_LIBRARIES})
 target_link_libraries(falcon_node ${catkin_LIBRARIES})
 

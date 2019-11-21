@@ -13,8 +13,7 @@
 #include <ros/common.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/PoseStamped.h>
-//#include <std_srvs/Empty.h>
-
+#include <moveit_msgs/RobotState.h>
 #include <boost/scoped_ptr.hpp>
 
 #include "falcon/core/FalconDevice.h"
@@ -32,6 +31,8 @@
 #include <ipa_manipulation_msgs/PlanToGoal.h>
 #include <ipa_manipulation_msgs/MoveToAction.h>
 #include <ipa_manipulation_msgs/MoveToGoal.h>
+
+#include <rosfalcon/ComputeIK.h>
 
 using namespace libnifalcon;
 using namespace std;
@@ -193,7 +194,7 @@ bool plan_trajectory(const std::string& plan_action_topic_name, const std::strin
 
 }
 
-bool move_trajectory(const std::string& move_action_topic_name, const std::string& base_frame_id, const std::array<double, 3>& Pos)
+bool move_trajectory(const std::string& move_action_topic_name, const std::string& base_frame_id, const geometry_msgs::PoseStamped& falcon_eef_stamped)
 {
   actionlib::SimpleActionClient<ipa_manipulation_msgs::MoveToAction> move_action_client_(move_action_topic_name, true);
   if (!move_action_client_.waitForServer(ros::Duration(5.0)))
@@ -201,19 +202,6 @@ bool move_trajectory(const std::string& move_action_topic_name, const std::strin
     ROS_ERROR_NAMED("main","%s action server is not available, please start 'ipa_mnaipulation' node", move_action_topic_name.c_str());
     return false;
   }
-
-  // falcon give only cartesian position
-  // basic orientation and frame id for falcon
-  geometry_msgs::PoseStamped falcon_eef_stamped;
-  falcon_eef_stamped.header.frame_id = base_frame_id;
-  falcon_eef_stamped.header.stamp = ros::Time::now();
-  falcon_eef_stamped.pose.position.x = Pos[0];
-  falcon_eef_stamped.pose.position.y = Pos[1];
-  falcon_eef_stamped.pose.position.z = Pos[2];
-  falcon_eef_stamped.pose.orientation.w = 1.0;
-  falcon_eef_stamped.pose.orientation.x = 0.0;
-  falcon_eef_stamped.pose.orientation.y = 0.0;
-  falcon_eef_stamped.pose.orientation.z = 0.0;
 
   ipa_manipulation_msgs::MoveToGoal move_goal;
   move_goal.target_pos = falcon_eef_stamped;
@@ -233,9 +221,40 @@ bool move_trajectory(const std::string& move_action_topic_name, const std::strin
     ROS_ERROR_STREAM_NAMED("main","move failed with goal pose: \n " << falcon_eef_stamped);
     return false;
   }
-
-
 }
+
+moveit_msgs::RobotState to_moveit_robotState(std::vector<string>& joint_names, std::vector<double>& joint_angles)
+{
+  moveit_msgs::RobotState state;
+  state.is_diff = false;
+  state.attached_collision_objects.clear();
+  state.joint_state.name = joint_names;
+  state.joint_state.position = joint_angles;
+  return state;
+}
+
+
+bool compute_ik(ros::NodeHandle& node, const geometry_msgs::PoseStamped& pose, moveit_msgs::RobotState& state)
+{
+  ros::ServiceClient compute_ik_client = node.serviceClient<rosfalcon::ComputeIK>("kdl/computeIK");
+  rosfalcon::ComputeIKRequest srvs_request;
+  srvs_request.eef_pose_stamped = pose;
+
+  rosfalcon::ComputeIKResponse srvs_response;
+  if (compute_ik_client.call(srvs_request, srvs_response))
+  {
+    ROS_INFO_NAMED("compute_ik","compute ik success");
+    to_moveit_robotState(srvs_response.joint_names, srvs_response.joint_values);
+    return srvs_response.ik_success;
+  }
+  else
+  {
+    ROS_INFO_NAMED("compute_ik","compute ik fail");
+    state = moveit_msgs::RobotState();
+    return srvs_response.ik_success;
+  }
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -259,7 +278,23 @@ int main(int argc, char* argv[])
     bool moveActionExist = true;
 
     // this will update goal state as start state
-    //ros::Publisher goal_state_publisher = node.advertise<std_srvs::Empty>("rviz/moveit/update_goal_state", 1000);
+    ros::Publisher goal_state_publisher = node.advertise<moveit_msgs::RobotState>("rviz/moveit/update_custom_goal_state", 1000);
+
+
+    // falcon give only cartesian position
+    // basic orientation and frame id for falcon
+    geometry_msgs::PoseStamped falcon_eef_stamped;
+    falcon_eef_stamped.header.frame_id = base_frame_id;
+    falcon_eef_stamped.header.stamp = ros::Time::now();
+    falcon_eef_stamped.pose.position.x = 0.0;
+    falcon_eef_stamped.pose.position.y = 0.0;
+    falcon_eef_stamped.pose.position.z = 0.0;
+    falcon_eef_stamped.pose.orientation.w = 1.0;
+    falcon_eef_stamped.pose.orientation.x = 0.0;
+    falcon_eef_stamped.pose.orientation.y = 0.0;
+    falcon_eef_stamped.pose.orientation.z = 0.0;
+
+    moveit_msgs::RobotState robot_state;
 
     if(init_falcon(falcon_int))
     {
@@ -348,7 +383,7 @@ int main(int argc, char* argv[])
                       ROS_INFO("Plan Trajectory Released (Button 1)");
                       planActionExist = false;
                       newHome = Pos;
-                      //plan_trajectory(plan_action_topic_name, base_frame_id, Pos);
+                      //plan_trajectory(plan_action_topic_name, base_frame_id, falcon_eef_stamped);
                     }
                     else if(moveActionExist == true){
                       ROS_INFO("Move Trajectory Released (Button 8)");
@@ -370,6 +405,15 @@ int main(int argc, char* argv[])
                     cout << "Error   =" << Pos[0] - newHome[0] <<" " << Pos[1]-newHome[1] << " " << Pos[2] -newHome[2] <<  endl;
                     //cout << "Force= " << forces[0] <<" " << forces[1] << " " << forces[2] <<  endl;
                 }
+
+                // visulaize goal states into rviz
+                falcon_eef_stamped.header.stamp = ros::Time::now();
+                falcon_eef_stamped.pose.position.x = Pos[0];
+                falcon_eef_stamped.pose.position.y = Pos[1];
+                falcon_eef_stamped.pose.position.z = Pos[2];
+                compute_ik(node, falcon_eef_stamped, robot_state);
+                goal_state_publisher.publish(robot_state);
+
                 prevPos = Pos;
                 prevHome = newHome;
             }

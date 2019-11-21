@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
  geometry_msgs
  ipa_manipulation_msgs
  sensor_msgs
+ moveit_msgs
  message_generation
 )
 
@@ -41,6 +42,7 @@ generate_messages(
  std_msgs
  geometry_msgs
  sensor_msgs
+ moveit_msgs
 )
 
 catkin_package(

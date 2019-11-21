@@ -520,7 +520,7 @@ def handle_kinematic_call_back(kinematic_request):
         kdl_kin = KDLKinematics(robot, base_link, end_link)
         q = kdl_kin.random_joint_angles()
         #pose = kdl_kin.forward(q)
-        pose, quat, rot_euler = PoseConv._extract_pose_msg(kinematic_request.eef_pose_stamped)
+        pose, quat, rot_euler = PoseConv._extract_pose_msg(kinematic_request.eef_pose_stamped.pose)
         if num_times is 0 and len(kinematic_request.current_joint_values) != 0:
             q_guess = kinematic_request.current_joint_values
         else:    
@@ -533,6 +533,17 @@ def handle_kinematic_call_back(kinematic_request):
             print "Result error:", np.linalg.norm(pose_search * pose**-1 - np.mat(np.eye(4)))
         num_times -= 1
    
+    response = ComputeIKResponse()
+    if q_search is None:
+        response.ik_success = False
+        response.message = "failed to find ik"
+    else:
+        response.ik_success = True
+        response.message = "success ik"
+        response.joint_values = q_search
+        response.joint_names = kdl_kin.get_joint_names()
+
+    return response 
 
 if __name__ == "__main__":
     #main()

@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
  ipa_manipulation_msgs
  sensor_msgs
  moveit_msgs
+ tf
  message_generation
 )
 

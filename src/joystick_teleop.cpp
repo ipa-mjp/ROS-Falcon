@@ -11,6 +11,8 @@
 #include <actionlib/client/simple_action_client.h>
 #include <ros/ros.h>
 #include <ros/common.h>
+#include <tf/tf.h>
+#include <tf/transform_listener.h>
 #include <sensor_msgs/Joy.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <moveit_msgs/RobotState.h>
@@ -46,6 +48,48 @@ NoFalcons is the index of the falcon which you wish to initialise
 Index 0 is first falcon.
 **********************************************/
  
+class TFListener
+{
+  tf::TransformListener tf_listener_;
+
+public:
+
+  TFListener(ros::NodeHandle& node): tf_listener_(node, ros::Duration(300.0))
+  {
+    ROS_INFO_NAMED("TFListener","TFListener: init");
+  }
+
+  geometry_msgs::PoseStamped transform_pose(const std::string& target_frame, const geometry_msgs::PoseStamped& pose_in)
+  {
+    ROS_INFO_NAMED("TFListener","TFListener:transform_pose: transform pose from %s to %s", target_frame.c_str(), pose_in.header.frame_id.c_str());
+    bool transform = false;
+
+    do
+    {
+      if (tf_listener_.frameExists(target_frame) &&
+          tf_listener_.canTransform(target_frame, pose_in.header.frame_id, pose_in.header.stamp))
+      {
+        geometry_msgs::PoseStamped pose_out;
+
+        // wait for transformation from target (base_link) to goal frame
+        tf_listener_.waitForTransform(target_frame, pose_in.header.frame_id, pose_in.header.stamp, ros::Duration(10.0));
+        tf_listener_.transformPose(target_frame, pose_in, pose_out);
+        transform = true;
+        ROS_INFO_NAMED("TFListener","TFListener:transform_pose: success");
+      }
+
+      else
+      {
+        transform = false;
+        ROS_ERROR_STREAM_NAMED("TFListener","TFListener:transform_pose: failed" << target_frame.c_str() << " does not exist");
+      }
+
+    } while (!transform && ros::ok());
+  }
+
+};
+
+
 bool init_falcon(int NoFalcon) 
 
 {
@@ -265,12 +309,13 @@ int main(int argc, char* argv[])
     bool debug;
     //Button 4 is mimic-ing clutch.
     bool clutchPressed, coagPressed;
-    std::string base_frame_id, plan_action_topic_name, move_action_topic_name;
+    std::string base_frame_id, tip_frame_id, plan_action_topic_name, move_action_topic_name;
     node.param<int>("falcon_number", falcon_int, 0);
     node.param<bool>("falcon_debug", debug, false);
     node.param<bool>("falcon_clutch", clutchPressed, true);
     node.param<bool>("falcon_coag", coagPressed, true);
-    node.param<string>("base_frame", base_frame_id, "arm_left_7_link");
+    node.param<string>("base_frame", base_frame_id, "world");
+    node.param<string>("tip_frame", tip_frame_id, "panda_hand");
     node.param<string>("plan_action_topic_name", plan_action_topic_name, "arm_planning_node/PlanInCartesian");
     node.param<string>("move_action_topic_name", move_action_topic_name, "arm_planning_node/MoveInCartesian");
 
@@ -280,11 +325,10 @@ int main(int argc, char* argv[])
     // this will update goal state as start state
     ros::Publisher goal_state_publisher = node.advertise<moveit_msgs::RobotState>("rviz/moveit/update_custom_goal_state", 1000);
 
-
     // falcon give only cartesian position
     // basic orientation and frame id for falcon
     geometry_msgs::PoseStamped falcon_eef_stamped;
-    falcon_eef_stamped.header.frame_id = base_frame_id;
+    falcon_eef_stamped.header.frame_id = tip_frame_id;
     falcon_eef_stamped.header.stamp = ros::Time::now();
     falcon_eef_stamped.pose.position.x = 0.0;
     falcon_eef_stamped.pose.position.y = 0.0;
@@ -293,6 +337,11 @@ int main(int argc, char* argv[])
     falcon_eef_stamped.pose.orientation.x = 0.0;
     falcon_eef_stamped.pose.orientation.y = 0.0;
     falcon_eef_stamped.pose.orientation.z = 0.0;
+
+
+    TFListener tf_listener(node);
+    //falcon_eef_stamped = tf_listener.transform_pose(base_frame_id, falcon_eef_stamped);
+
 
     moveit_msgs::RobotState robot_state;
 
@@ -405,15 +454,17 @@ int main(int argc, char* argv[])
                     cout << "Error   =" << Pos[0] - newHome[0] <<" " << Pos[1]-newHome[1] << " " << Pos[2] -newHome[2] <<  endl;
                     //cout << "Force= " << forces[0] <<" " << forces[1] << " " << forces[2] <<  endl;
                 }
-
+                /*
                 // visulaize goal states into rviz
                 falcon_eef_stamped.header.stamp = ros::Time::now();
                 falcon_eef_stamped.pose.position.x = Pos[0];
                 falcon_eef_stamped.pose.position.y = Pos[1];
                 falcon_eef_stamped.pose.position.z = Pos[2];
+                falcon_eef_stamped = tf_listener.transform_pose(base_frame_id, falcon_eef_stamped);
+                ROS_INFO_STREAM("eff pose: "<< falcon_eef_stamped);
                 compute_ik(node, falcon_eef_stamped, robot_state);
                 goal_state_publisher.publish(robot_state);
-
+                */
                 prevPos = Pos;
                 prevHome = newHome;
             }

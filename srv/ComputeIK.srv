@@ -1,0 +1,18 @@
+# this is the server request
+# eef pose stamped into Cartesian Space
+geometry_msgs/PoseStamped eef_pose_stamped
+
+# current joint values
+sensor_msgs/JointState current_joint_values
+---
+# according to eef value, get joint values in the Joint Space
+float64[] joint_values
+
+# joint names corrospoding joint values
+string[] joint_names
+
+# Message used for debugging information
+string message
+
+# Success of IK calculation
+bool ik_success

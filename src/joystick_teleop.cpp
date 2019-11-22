@@ -288,7 +288,7 @@ bool compute_ik(ros::NodeHandle& node, const geometry_msgs::PoseStamped& pose, m
   if (compute_ik_client.call(srvs_request, srvs_response))
   {
     ROS_INFO_NAMED("compute_ik","compute ik success");
-    to_moveit_robotState(srvs_response.joint_names, srvs_response.joint_values);
+    state = to_moveit_robotState(srvs_response.joint_names, srvs_response.joint_values);
     return srvs_response.ik_success;
   }
   else
@@ -454,17 +454,17 @@ int main(int argc, char* argv[])
                     cout << "Error   =" << Pos[0] - newHome[0] <<" " << Pos[1]-newHome[1] << " " << Pos[2] -newHome[2] <<  endl;
                     //cout << "Force= " << forces[0] <<" " << forces[1] << " " << forces[2] <<  endl;
                 }
-                /*
+
                 // visulaize goal states into rviz
                 falcon_eef_stamped.header.stamp = ros::Time::now();
                 falcon_eef_stamped.pose.position.x = Pos[0];
                 falcon_eef_stamped.pose.position.y = Pos[1];
                 falcon_eef_stamped.pose.position.z = Pos[2];
-                falcon_eef_stamped = tf_listener.transform_pose(base_frame_id, falcon_eef_stamped);
-                ROS_INFO_STREAM("eff pose: "<< falcon_eef_stamped);
+                //falcon_eef_stamped = tf_listener.transform_pose(base_frame_id, falcon_eef_stamped);
+                //ROS_INFO_STREAM("eff pose: "<< falcon_eef_stamped);
                 compute_ik(node, falcon_eef_stamped, robot_state);
                 goal_state_publisher.publish(robot_state);
-                */
+
                 prevPos = Pos;
                 prevHome = newHome;
             }

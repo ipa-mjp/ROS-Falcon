@@ -30,7 +30,8 @@
 # Author: Kelsey Hawkins
 
 import numpy as np
-
+import threading
+import tf
 import PyKDL as kdl
 import rospy
 from geometry_msgs.msg import PoseStamped, Pose
@@ -41,6 +42,31 @@ import tf.transformations
 from pose_converter import PoseConv
 
 from rosfalcon.srv import ComputeIK, ComputeIKRequest, ComputeIKResponse 
+
+###############''WORKAROUND FOR TRANSFORMLISTENER ISSUE####################
+_tl=None
+_tl_creation_lock=threading.Lock()
+
+def get_transform_listener():
+	global _tl
+	with _tl_creation_lock:
+		if _tl==None:
+			_tl=tf.TransformListener(True, rospy.Duration(40.0))
+		return _tl
+###########################################################################
+
+
+def transform_pose(base_frame='',pose=PoseStamped()):
+    try:
+        listener = get_transform_listener()
+        listener.waitForTransform(base_frame, pose.header.frame_id, pose.header.stamp, rospy.Duration(10))
+        goal_pose = listener.transformPose(base_frame, pose)
+        #print "####### goal_pose######## ", goal_pose
+        return goal_pose
+    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException), e:
+        print "Could not lookup robot pose: %s" % e
+        self.evaluationLogging("stop_drive_to_shelf")
+        return PoseStamped()
 
 def create_kdl_kin(base_link, end_link, urdf_filename=None, description_param="/robot_description"):
     if urdf_filename is None:
@@ -510,7 +536,7 @@ def main():
 def handle_kinematic_call_back(kinematic_request):
     import random
     robot = Robot.from_parameter_server()
-    num_times = 20
+    num_times = 1
 
     while not rospy.is_shutdown() and num_times > 0:
         print "number of runs: ", num_times
@@ -518,21 +544,31 @@ def handle_kinematic_call_back(kinematic_request):
         end_link = robot.link_map.keys()[random.randint(0, len(robot.link_map)-1)]
         print "Root link: %s; Random end link: %s" % (base_link, end_link)
         kdl_kin = KDLKinematics(robot, base_link, end_link)
-        q = kdl_kin.random_joint_angles()
+        #q = kdl_kin.random_joint_angles()
+        positions = rospy.wait_for_message("/joint_states", JointState, timeout = 3.0).position
+        q = []
+        for i in range(0, 7):
+            q.append(positions[i])
         #pose = kdl_kin.forward(q)
-        pose, quat, rot_euler = PoseConv._extract_pose_msg(kinematic_request.eef_pose_stamped.pose)
+        pose, quat, rot_euler = PoseConv._extract_pose_msg( transform_pose(base_link, kinematic_request.eef_pose_stamped).pose )
         if num_times is 0 and len(kinematic_request.current_joint_values) != 0:
             q_guess = kinematic_request.current_joint_values
         else:    
-            q_guess = kdl_kin.random_joint_angles()
+            pass
+        q_guess = q #kdl_kin.random_joint_angles()
         q_new = kdl_kin.inverse(pose, q_guess)
         if q_new is None:
             print "Bad IK, trying search..."
             q_search = kdl_kin.inverse_search(pose)
             pose_search = kdl_kin.forward(q_search)
             print "Result error:", np.linalg.norm(pose_search * pose**-1 - np.mat(np.eye(4)))
+        else:
+            break
+        print q_search
+        print q_new
         num_times -= 1
-   
+        
+    
     response = ComputeIKResponse()
     if q_search is None:
         response.ik_success = False
